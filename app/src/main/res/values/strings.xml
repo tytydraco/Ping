@@ -1,0 +1,7 @@
+<resources>
+    <string name="app_name">Ping</string>
+    <string name="dialog_title">Addresses</string>
+    <string name="dialog_dismiss">Dismiss</string>
+    <string name="dialog_copy">Copy</string>
+    <string name="dialog_none">No connected devices</string>
+</resources>
