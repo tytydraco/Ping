@@ -9,7 +9,7 @@ import android.os.Build
 import android.os.IBinder
 import android.service.quicksettings.Tile
 import android.service.quicksettings.TileService
-import com.draco.ping.R
+import android.view.WindowManager
 import java.net.Inet4Address
 import java.net.InetAddress
 import java.net.NetworkInterface
@@ -18,6 +18,10 @@ import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 
 class QSTileService : TileService() {
+    companion object {
+        const val PING_TIMEOUT = 200
+    }
+
     private var running = false
 
     private val executorService: ExecutorService = Executors.newFixedThreadPool(32)
@@ -63,7 +67,7 @@ class QSTileService : TileService() {
             val hostAddress = address.hostAddress ?: continue
 
             val callable = Callable {
-                if (address.isReachable(50)) {
+                if (address.isReachable(PING_TIMEOUT)) {
                     val name = if (hostAddress == startAddress)
                         "*$hostAddress"
                     else
@@ -119,24 +123,26 @@ class QSTileService : TileService() {
 
         val addresses = scrapedAddresses.flatten().joinToString("\n")
 
-        if (addresses.isEmpty()) {
-            showDialog(noneDialog)
-        } else {
-            val dialog = AlertDialog.Builder(this)
-                .setTitle(R.string.dialog_title)
-                .setMessage(addresses)
-                .setPositiveButton(R.string.dialog_dismiss) { _, _ -> }
-                .setNeutralButton(R.string.dialog_copy) { _, _ ->
-                    val clipData = ClipData.newPlainText(
-                        getString(R.string.dialog_title),
-                        addresses
-                    )
-                    clipboardManager.setPrimaryClip(clipData)
-                }
-                .create()
+        try {
+            if (addresses.isEmpty()) {
+                showDialog(noneDialog)
+            } else {
+                val dialog = AlertDialog.Builder(this)
+                    .setTitle(R.string.dialog_title)
+                    .setMessage(addresses)
+                    .setPositiveButton(R.string.dialog_dismiss) { _, _ -> }
+                    .setNeutralButton(R.string.dialog_copy) { _, _ ->
+                        val clipData = ClipData.newPlainText(
+                            getString(R.string.dialog_title),
+                            addresses
+                        )
+                        clipboardManager.setPrimaryClip(clipData)
+                    }
+                    .create()
 
-            showDialog(dialog)
-        }
+                showDialog(dialog)
+            }
+        } catch (_: WindowManager.BadTokenException) {}
 
         setRunning(false)
     }
