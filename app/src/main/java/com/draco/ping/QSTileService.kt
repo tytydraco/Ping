@@ -57,11 +57,11 @@ class QSTileService : TileService() {
     }
 
     private fun scrapeAddresses(startAddress: String): List<String> {
-        val reachableAddresses = mutableListOf<String>()
+        val reachableAddresses = Array<String?>(255) { null }
         val prefix: String = startAddress.substring(0, startAddress.lastIndexOf(".") + 1)
 
         val callables = mutableListOf<Callable<Unit>>()
-        for (i in 1..254) {
+        for (i in 0 until 256) {
             val testIp = prefix + i.toString()
             val address = InetAddress.getByName(testIp)
             val hostAddress = address.hostAddress ?: continue
@@ -72,7 +72,7 @@ class QSTileService : TileService() {
                         "*$hostAddress"
                     else
                         hostAddress
-                    reachableAddresses.add(name)
+                    reachableAddresses[i] = name
                 }
             }
             callables.add(callable)
@@ -80,11 +80,7 @@ class QSTileService : TileService() {
 
         executorService.invokeAll(callables)
 
-        reachableAddresses.sortBy {
-            it.substring(0, it.lastIndexOf(".") + 1)
-        }
-
-        return reachableAddresses
+        return reachableAddresses.mapNotNull { it }
     }
 
     private fun setRunning(status: Boolean) {
@@ -121,7 +117,9 @@ class QSTileService : TileService() {
             scrapeAddresses(it)
         }
 
-        val addresses = scrapedAddresses.flatten().joinToString("\n")
+        val addresses = scrapedAddresses
+            .flatten()
+            .joinToString("\n")
 
         try {
             if (addresses.isEmpty()) {
