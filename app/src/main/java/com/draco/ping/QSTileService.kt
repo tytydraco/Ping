@@ -19,7 +19,7 @@ import java.util.concurrent.Executors
 
 class QSTileService : TileService() {
     companion object {
-        const val PING_TIMEOUT = 200
+        const val PING_TIMEOUT = 1000
     }
 
     private var running = false
