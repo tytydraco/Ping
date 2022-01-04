@@ -6,10 +6,12 @@ import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
 import android.os.Build
+import android.os.Handler
 import android.os.IBinder
+import android.os.Looper
 import android.service.quicksettings.Tile
 import android.service.quicksettings.TileService
-import android.view.WindowManager
+import android.view.View
 import java.net.Inet4Address
 import java.net.InetAddress
 import java.net.NetworkInterface
@@ -24,18 +26,21 @@ class QSTileService : TileService() {
 
     private var running = false
 
-    private val executorService: ExecutorService = Executors.newFixedThreadPool(32)
+    private val mainExecutorService: ExecutorService = Executors.newFixedThreadPool(1)
+    private val scanningExecutorService: ExecutorService = Executors.newFixedThreadPool(32)
 
     private lateinit var clipboardManager: ClipboardManager
-    private lateinit var noneDialog: AlertDialog
+    private lateinit var dialog: AlertDialog
 
     override fun onBind(intent: Intent?): IBinder? {
         clipboardManager = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
 
-        noneDialog = AlertDialog.Builder(this)
-            .setTitle(R.string.dialog_title)
-            .setMessage(R.string.dialog_none)
-            .setPositiveButton(R.string.dialog_dismiss) { _, _ -> }
+        dialog = AlertDialog.Builder(this)
+            .setTitle(R.string.scanning_dialog_title)
+            .setMessage(R.string.loading)
+            .setCancelable(false)
+            .setPositiveButton(R.string.dismiss, null)
+            .setNeutralButton(R.string.copy, null)
             .create()
 
         return super.onBind(intent)
@@ -78,7 +83,7 @@ class QSTileService : TileService() {
             callables.add(callable)
         }
 
-        executorService.invokeAll(callables)
+        scanningExecutorService.invokeAll(callables)
 
         return reachableAddresses.mapNotNull { it }
     }
@@ -100,48 +105,65 @@ class QSTileService : TileService() {
         }
     }
 
+    private fun scrape(callback: (String) -> Unit) {
+        mainExecutorService.execute {
+            val externalAddresses = getExternalAddresses()
+            val scrapedAddresses = externalAddresses.map {
+                scrapeAddresses(it)
+            }
+
+            val addresses = scrapedAddresses
+                .flatten()
+                .joinToString("\n")
+
+            callback(addresses)
+        }
+    }
+
     override fun onClick() {
         super.onClick()
 
         if (running)
             return
-
         setRunning(true)
 
-        val externalAddresses = getExternalAddresses()
-        val scrapedAddresses = externalAddresses.map {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                qsTile.subtitle = it
-                qsTile.updateTile()
-            }
-            scrapeAddresses(it)
+        showDialog(dialog)
+
+        /* Hide the buttons until we scan everything */
+        dialog.apply {
+            getButton(AlertDialog.BUTTON_POSITIVE).visibility = View.GONE
+            getButton(AlertDialog.BUTTON_NEUTRAL).visibility = View.GONE
         }
 
-        val addresses = scrapedAddresses
-            .flatten()
-            .joinToString("\n")
+        scrape { addresses ->
+            Handler(Looper.getMainLooper()).post {
+                /* Un-hide dismiss button */
+                dialog.getButton(AlertDialog.BUTTON_POSITIVE).visibility = View.VISIBLE
 
-        try {
-            if (addresses.isEmpty()) {
-                showDialog(noneDialog)
-            } else {
-                val dialog = AlertDialog.Builder(this)
-                    .setTitle(R.string.dialog_title)
-                    .setMessage(addresses)
-                    .setPositiveButton(R.string.dialog_dismiss) { _, _ -> }
-                    .setNeutralButton(R.string.dialog_copy) { _, _ ->
-                        val clipData = ClipData.newPlainText(
-                            getString(R.string.dialog_title),
-                            addresses
-                        )
-                        clipboardManager.setPrimaryClip(clipData)
+                if (addresses.isEmpty()) {
+                    dialog.apply {
+                        setMessage(getString(R.string.none))
                     }
-                    .create()
-
-                showDialog(dialog)
+                } else {
+                    dialog.apply {
+                        setTitle(R.string.addresses_dialog_title)
+                        setMessage(addresses)
+                        getButton(AlertDialog.BUTTON_NEUTRAL).apply {
+                            visibility = View.VISIBLE
+                            setOnClickListener {
+                                val clipData = ClipData.newPlainText(
+                                    getString(R.string.addresses_dialog_title),
+                                    addresses
+                                )
+                                clipboardManager.setPrimaryClip(clipData)
+                                dialog.dismiss()
+                            }
+                        }
+                    }
+                }
             }
-        } catch (_: WindowManager.BadTokenException) {}
 
-        setRunning(false)
+            setRunning(false)
+        }
     }
 }
